@@ -1,0 +1,127 @@
+resources:
+- repo: self
+  clean: true
+queue:
+  name: RM-Platforms-2
+  demands: 
+  - npm
+  - msbuild
+  - visualstudio
+
+#Your build pipeline references an undefined variable named ‘Parameters.solution’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
+#Your build pipeline references an undefined variable named ‘Parameters.solution’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
+#Your build pipeline references the ‘BuildPlatform’ variable, which you’ve selected to be settable at queue time. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab, and then select the option to make it settable at queue time. See https://go.microsoft.com/fwlink/?linkid=865971
+#Your build pipeline references an undefined variable named ‘Parameters.solution’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
+#Your build pipeline references the ‘BuildPlatform’ variable, which you’ve selected to be settable at queue time. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab, and then select the option to make it settable at queue time. See https://go.microsoft.com/fwlink/?linkid=865971
+steps:
+- task: NuGetCommand@2
+  displayName: 'NuGet restore'
+  inputs:
+    restoreSolution: '$(Parameters.solution)'
+
+
+- task: Npm@0
+  displayName: 'http proxy'
+  inputs:
+    cwd: 'BC2ROI-TAX/Angular'
+
+    command: config
+
+    arguments: 'set http-proxy "http://10.178.7.4:8080/"'
+
+  enabled: false
+
+- task: Npm@0
+  displayName: 'https proxy'
+  inputs:
+    cwd: 'BC2ROI-TAX/Angular'
+
+    command: config
+
+    arguments: 'set https-proxy "http://10.178.7.4:8080/"'
+
+  enabled: false
+
+- task: Npm@1
+  displayName: 'npm install'
+  inputs:
+    workingDir: 'BC2ROI-TAX/Angular'
+
+    verbose: false
+
+
+- script: 'npm rebuild node-sass'
+  workingDirectory: 'BC2ROI-TAX/Angular'
+
+  displayName: 'npm rebuild node-sass'
+
+- script: 'Npm run build:qa'
+  workingDirectory: 'BC2ROI-TAX/Angular'
+
+  displayName: 'ng build  qa'
+
+- task: VSBuild@1
+  displayName: 'Build solution BC2ROITAX QA'
+  inputs:
+    solution: '$(Parameters.solution)'
+
+    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation="$(build.artifactstagingdirectory)\QA" /p:IsPackaging=true /p:AutoParameterizationWebConfigConnectionStrings=False'
+
+    platform: '$(BuildPlatform)'
+
+    configuration: QA
+
+    clean: true
+
+
+- script: 'Npm run build:stage'
+  workingDirectory: 'BC2ROI-TAX/Angular'
+
+  displayName: 'ng build  staging'
+
+- task: VSBuild@1
+  displayName: 'Build solution BC2ROITAX staging'
+  inputs:
+    solution: '$(Parameters.solution)'
+
+    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation="$(build.artifactstagingdirectory)\staging" /p:IsPackaging=true /p:AutoParameterizationWebConfigConnectionStrings=False'
+
+    platform: '$(BuildPlatform)'
+
+    configuration: Staging
+
+    clean: true
+
+
+- script: 'npm run test'
+  workingDirectory: 'BC2ROI-TAX/Angular'
+
+  displayName: 'ng test'
+  enabled: false
+  timeoutInMinutes: 5
+
+- script: |
+   echo "------- Cleaning previous run -------"
+   sourceanalyzer.exe -b $(Build.DefinitionName) -verbose -debug -clean
+   
+   echo "------- Fortify Build -------"
+   sourceanalyzer.exe -b $(Build.DefinitionName) -verbose -debug -logfile $(Build.ArtifactStagingDirectory)\sca_artifacts\BC2ROI-TAX.sln_build.log -debug -verbose "C:\Program Files (x86)\Microsoft Visual Studio\2017\Enterprise\MSBuild\15.0\Bin\msbuild.exe" $(Build.SourcesDirectory)\BC2ROI-TAX.sln /t:Rebuild /p:platform="any cpu" /p:configuration="release"
+   
+   echo "------- Fortify Scan .fpr generation -------"
+   sourceanalyzer.exe -b $(Build.DefinitionName) -debug -verbose -logfile $(Build.ArtifactStagingDirectory)\sca_artifacts\$(Build.BuildNumber)_scan.log -scan -f $(Build.ArtifactStagingDirectory)\sca_artifacts\$(Build.BuildNumber).fpr
+   
+   echo "------- Fortify Scan .Pdf generation -------"
+   BIRTReportGenerator -template "Developer Workbook" -source "$(Build.ArtifactStagingDirectory)\sca_artifacts\$(Build.BuildNumber).fpr" -format PDF -output "$(Build.ArtifactStagingDirectory)\sca_artifacts\Developer-Workbook-$(Build.BuildNumber).pdf"
+  displayName: Fortify
+
+- task: PublishTestResults@2
+  displayName: 'Publish Test Results **/TEST-*.xml'
+
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Artifact: drop'
+  inputs:
+    PathtoPublish: '$(build.artifactstagingdirectory)'
+
+
+
